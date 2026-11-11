@@ -9,8 +9,9 @@ function pubmedUrl(row) {
 }
 function rowKey(row) { return String(row.study_id || row.doi || row.title || '') }
 
-export function Studies ({ query }) {
+export function Studies ({ query, onStatusChange }) {
   const [rows, setRows] = useState([])
+  useEffect(() => { onStatusChange?.(Boolean(query) && loading) }, [query, loading, onStatusChange])
   const [citations, setCitations] = useState({})
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')

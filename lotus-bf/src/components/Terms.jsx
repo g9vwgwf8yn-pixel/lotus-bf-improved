@@ -1,47 +1,33 @@
-import { useEffect, useState } from 'react'
-
+import { useEffect, useMemo, useState } from 'react'
+let dictionary = null
+let dictionaryPromise = null
+function loadDictionary() {
+  if (!dictionaryPromise) dictionaryPromise = fetch('/terms').then(r => { if (!r.ok) throw new Error('Dictionary unavailable'); return r.json() }).then(d => {
+    dictionary = (d.terms || []).filter(Boolean).sort((a,b)=>a.localeCompare(b)); return dictionary
+  }).catch(() => { dictionaryPromise = null; return null })
+  return dictionaryPromise
+}
 export function Terms({ onPickTerm }) {
   const [search, setSearch] = useState('')
-  const [terms, setTerms] = useState([])
-  const [loading, setLoading] = useState(false)
-  const cache = window.__termCache || (window.__termCache = new Map())
-  const [error, setError] = useState('')
-
+  const [dictionaryReady, setDictionaryReady] = useState(Boolean(dictionary))
+  const [remote, setRemote] = useState([])
+  useEffect(() => { let live=true; loadDictionary().then(d => { if(live && d) setDictionaryReady(true) }); return ()=>{live=false} }, [])
+  const matches = useMemo(() => {
+    const q=search.trim().toLowerCase(); if (!q) return []
+    if (!dictionaryReady || !dictionary) return remote
+    const starts=[], contains=[]
+    for (const term of dictionary) { const t=term.toLowerCase(); if(t.startsWith(q)) starts.push(term); else if(t.includes(q)) contains.push(term); if(starts.length>=30) break }
+    return starts.concat(contains).slice(0,30)
+  }, [search, dictionaryReady, remote])
   useEffect(() => {
-    const value = search.trim()
-    if (!value) { setTerms([]); setError(''); setLoading(false); return }
-    const cached = cache.get(value.toLowerCase())
-    if (cached) { setTerms(cached); setLoading(false); setError(''); return }
-    const controller = new AbortController()
-    const timer = setTimeout(async () => {
-      setLoading(true); setError('')
-      try {
-        const response = await fetch(`/terms?search=${encodeURIComponent(value)}&limit=40`, { signal: controller.signal })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const data = await response.json()
-        if (!controller.signal.aborted) { const suggestions = Array.isArray(data.terms) ? data.terms : []; cache.set(value.toLowerCase(), suggestions); setTerms(suggestions) }
-      } catch (e) {
-        if (!controller.signal.aborted) { setError('Suggestions unavailable. Try again.'); setTerms([]) }
-      } finally { if (!controller.signal.aborted) setLoading(false) }
-    }, 90)
-    return () => { clearTimeout(timer); controller.abort() }
-  }, [search])
-
-  const submit = () => { const value = search.trim(); if (value) { onPickTerm(value); setSearch('') } }
-
+    if (dictionaryReady || !search.trim()) return
+    const ac=new AbortController()
+    const timer=setTimeout(()=>fetch(`/terms?search=${encodeURIComponent(search.trim())}&limit=30`,{signal:ac.signal}).then(r=>r.json()).then(d=>{if(!ac.signal.aborted)setRemote(d.terms||[])}).catch(()=>{}),80)
+    return ()=>{clearTimeout(timer);ac.abort()}
+  },[search,dictionaryReady])
+  const choose=t=>{onPickTerm(t);setSearch('');setRemote([])}
   return <div className="terms">
-    <div className="terms__controls">
-      <input className="input" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => { if (e.key === "Enter") submit() }} placeholder="Search any brain function term..." aria-label="Search terms" />
-      {search && <button type="button" onClick={submit}>Search</button>}
-      {search && <button type="button" onClick={() => setSearch('')}>Clear</button>}
-    </div>
-    {loading && <p className="terms__hint">Searching...</p>}
-    {error && <p role="alert" className="terms__error">{error}</p>}
-    {!search.trim() && <p className="terms__hint">Type to see matching terms.</p>}
-    {search.trim() && !loading && !error && <div className="terms__list" role="listbox" aria-label="Term suggestions">
-      {terms.length === 0 ? <p className="terms__hint">No matching terms</p> : terms.map(term =>
-        <button className="terms__suggestion" key={term} role="option" aria-selected="false" onClick={() => { onPickTerm(term); setSearch('') }}>{term}</button>
-      )}
-    </div>}
+    <div className="terms__controls"><input className="input" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>{if(e.key==='Enter' && matches.length) choose(matches[0])}} placeholder="Search brain function terms..." aria-label="Search terms" autoComplete="off" />{search && <button type="button" onClick={()=>setSearch('')}>Clear</button>}</div>
+    {search.trim() && <div className="terms__list" role="listbox" aria-label="Term suggestions">{matches.length ? matches.map(term=><button className="terms__suggestion" key={term} role="option" onClick={()=>choose(term)}>{term}</button>):<p className="terms__hint">{dictionaryReady?'No matching terms':'Loading term dictionary...'}</p>}</div>}
   </div>
 }

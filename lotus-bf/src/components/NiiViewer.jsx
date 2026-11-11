@@ -17,7 +17,7 @@ function isStandardMNI2mm(dims, voxelMM) {
 // x = -2*i + 90;  y = 2*j - 126;  z = 2*k - 72
 const MNI2MM = { x0: 90, y0: -126, z0: -72, vx: 2, vy: 2, vz: 2 };
 
-export function NiiViewer({ query }) {
+export function NiiViewer({ query, onStatusChange }) {
   const [loadingBG, setLoadingBG] = useState(false)
   const [loadingMap, setLoadingMap] = useState(false)
   const [mapVersion, setMapVersion] = useState(0)
@@ -104,7 +104,7 @@ export function NiiViewer({ query }) {
     const res = await fetch(url)
     if (!res.ok) {
       const t = await res.text().catch(()=> '')
-      throw new Error(`GET ${url} → ${res.status} ${t}`)
+      throw new Error(`Brain map unavailable (HTTP ${res.status}). Please retry.`)
     }
     let ab = await res.arrayBuffer()
     if (nifti.isCompressed(ab)) ab = nifti.decompress(ab)
@@ -390,6 +390,7 @@ const coord2idx = (c_mm, n, axis) => {
     loadingBG, loadingMap, errBG, errMap, query, mapVersion
   ])
 
+  useEffect(() => { onStatusChange?.(Boolean(query) && (loadingBG || loadingMap)) }, [query, loadingBG, loadingMap, onStatusChange])
   const [nx, ny, nz] = dims
 
   // slice configs (labels only; numbers removed)
@@ -492,7 +493,7 @@ const coord2idx = (c_mm, n, axis) => {
       {(errBG || errMap) && (
         <div className='rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800'>
           {errBG && <div>Background: {errBG}</div>}
-          {errMap && <div>Map: {errMap}</div>}
+          {errMap && <div>{errMap}</div>}
         </div>
       )}
 
@@ -502,7 +503,7 @@ const coord2idx = (c_mm, n, axis) => {
             <div key={key} className='flex flex-col gap-2'>
               <div className='text-xs text-gray-600'>{name} ({axisLabel})</div>
               <div className='flex items-center gap-2'>
-                <canvas ref={canvasRef} className='brain-slice w-full rounded-xl border' title='點擊腦圖任意位置，三個切面會同步移動十字準線' onClick={(e)=>onCanvasClick(e, key)} style={{ cursor: 'crosshair' }} />
+                <canvas ref={canvasRef} className='brain-slice w-full rounded-xl border' title='Click to move the crosshairs across all three views' onClick={(e)=>onCanvasClick(e, key)} style={{ cursor: 'crosshair' }} />
               </div>
             </div>
           ))}

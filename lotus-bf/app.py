@@ -1,3 +1,4 @@
+import tempfile
 import re
 import os
 from sqlalchemy import text
@@ -10,7 +11,7 @@ from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional
 from flask_cors import CORS
 
-from flask import Blueprint, Flask, after_this_request, jsonify, request, send_file, send_from_directory
+from flask import Blueprint, Flask, after_this_request, jsonify, request, send_file, send_from_directory, current_app
 from sqlalchemy import create_engine, text
 
 # ------------ DB engine -------------
@@ -639,25 +640,31 @@ def _make_nii_from_coords(coords_by_study, voxel: float = 2.0, fwhm: float = 10.
 
 @bp.get("/query/<path:query_string>/nii")
 def mixed_query_nii(query_string: str):
-    voxel  = request.args.get("voxel", default=2.0, type=float)
-    fwhm   = request.args.get("fwhm",  default=10.0, type=float)
+    voxel = request.args.get("voxel", default=2.0, type=float)
+    fwhm = request.args.get("fwhm", default=10.0, type=float)
     kernel = request.args.get("kernel", default="gauss", type=str).lower()
-    r      = request.args.get("r",      default=6.0,  type=float)
-    eng = get_engine()
-    with eng.begin() as conn:
-        conn.execute(text("SET search_path TO ns, public;"))
-        try:
-            coords_by_study = _collect_coords_for_mixed(conn, query_string, r=r)
-            path, n = _make_nii_from_coords(coords_by_study, voxel=voxel, fwhm=fwhm, kernel=kernel)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
+    r = request.args.get("r", default=6.0, type=float)
+    cache_dir = os.path.join(tempfile.gettempdir(), "lotus_bf_maps")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_key = hashlib.sha256(f"{query_string}|{voxel}|{fwhm}|{kernel}|{r}".encode()).hexdigest()
+    cached_path = os.path.join(cache_dir, cache_key + ".nii.gz")
+    if os.path.isfile(cached_path):
+        response = send_file(cached_path, mimetype="application/gzip")
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
     try:
+        eng = get_engine()
+        with eng.begin() as conn:
+            conn.execute(text("SET search_path TO ns, public;"))
+            coords_by_study = _collect_coords_for_mixed(conn, query_string, r=r)
+        path, _ = _make_nii_from_coords(coords_by_study, voxel=voxel, fwhm=fwhm, kernel=kernel)
         os.replace(path, cached_path)
-    except OSError:
-        shutil.copyfile(path, cached_path)
-    response = send_file(cached_path, as_attachment=True, download_name='query_mixed_map.nii.gz', mimetype='application/gzip')
-    response.headers['Cache-Control'] = 'public, max-age=86400'
-    return response
+        response = send_file(cached_path, mimetype="application/gzip")
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+    except Exception:
+        current_app.logger.exception("Map generation failed")
+        return jsonify({"error": "Brain map generation failed. Please retry."}), 500
 
 def _split_mixed_query(qs: str):
     s = urllib.parse.unquote(qs).strip()
