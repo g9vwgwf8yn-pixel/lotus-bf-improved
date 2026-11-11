@@ -26,7 +26,7 @@ export function NiiViewer({ query, onStatusChange }) {
 
   // backend params (map generation)
   const [voxel, setVoxel] = useState(2.0)
-  const [fwhm, setFwhm] = useState(10.0)
+  const fwhm = 10.0 // Fixed smoothing for consistent maps
   const [kernel, setKernel] = useState('gauss')
   const [r, setR] = useState(6.0)
 
@@ -509,14 +509,6 @@ const coord2idx = (c_mm, n, axis) => {
           ))}
         </div>
       )}
-
-      {/* map generation params */}
-      <div className='rounded-xl border p-3 text-sm'>
-        <label className='flex flex-col'>Gaussian FWHM:
-          <input type='number' step='0.5' value={fwhm} onChange={e=>setFwhm(Number(e.target.value)||0)} className='w-28 rounded-lg border px-2 py-1'/>
-          <br />
-        </label>
-      </div>
 
       {/* overlay controls */}
       <div className='rounded-xl border p-3 text-sm'>

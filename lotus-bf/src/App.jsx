@@ -15,7 +15,7 @@ export default function App() {
   useEffect(() => {if(!mapLoading && !papersLoading) setShowLoading(false)},[mapLoading,papersLoading])
   const handlePickTerm = useCallback((term) => setQuery(term), [setQuery])
   return <div className="app">
-    <header className="app__header"><h1 className="app__title">LoTUS-BF</h1></header>
+    <header className="app__header"><h1 className="app__title">NeuroScope</h1></header>
     <div className="search-panel">
       <Terms onPickTerm={handlePickTerm} />
       <details className="advanced-query"><summary>Advanced search</summary>

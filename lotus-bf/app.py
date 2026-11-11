@@ -965,31 +965,23 @@ import urllib.request as _urlrequest
 
 @lru_cache(maxsize=12000)
 def _openalex_citations(doi, title):
+    """Best-effort citation count from OpenAlex. Never invent a count."""
     try:
-        if doi:
-            doi = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', doi.strip(), flags=re.I)
-            if doi.startswith('10.'):
-                url = 'https://api.openalex.org/works/https://doi.org/' + urllib.parse.quote(doi, safe='/')
-            else:
-                url = None
+        doi = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', (doi or '').strip(), flags=re.I)
+        title = (title or '').strip()
+        if doi.startswith('10.'):
+            url = 'https://api.openalex.org/works/https://doi.org/' + urllib.parse.quote(doi, safe='/')
+        elif title:
+            url = 'https://api.openalex.org/works?per-page=5&search=' + urllib.parse.quote(title)
         else:
-            url = None
-        if not url and title:
-            url = 'https://api.openalex.org/works?per-page=1&search=' + urllib.parse.quote(title)
-        if not url:
             return None
-        req = _urlrequest.Request(url, headers={'User-Agent':'LoTUS-BF-research/1.0 (citation lookup)', 'Accept':'application/json'})
-        with _urlrequest.urlopen(req, timeout=3.5) as res:
+        req = _urlrequest.Request(url, headers={'User-Agent':'NeuroScope/1.0 (academic citation lookup)', 'Accept':'application/json'})
+        with _urlrequest.urlopen(req, timeout=9) as res:
             data = _json.load(res)
         if 'results' in data:
-            hits = data.get('results') or []
-            if not hits:
-                return None
-            # Do not misattribute a citation count to a loosely matching title.
             def norm(x): return re.sub(r'[^a-z0-9]+', '', str(x).lower())
-            if norm(hits[0].get('title', '')) != norm(title):
-                return None
-            data = hits[0]
+            data = next((hit for hit in (data.get('results') or []) if norm(hit.get('title', '')) == norm(title)), None)
+            if not data: return None
         count = data.get('cited_by_count')
         return int(count) if isinstance(count, int) and count >= 0 else None
     except Exception:
