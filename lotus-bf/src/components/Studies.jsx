@@ -1,3 +1,4 @@
+import impactFactors2025 from '../impactFactors2025.json'
 import { useEffect, useMemo, useState } from 'react'
 
 function classNames (...xs) { return xs.filter(Boolean).join(' ') }
@@ -6,6 +7,10 @@ function pubmedUrl(row) {
   if (/^\d+$/.test(pmid)) return `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`
   const title = String(row.title || '').trim()
   return title ? `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(title + '[Title]')}` : null
+}
+function getImpactFactor(journal) {
+  const key = String(journal || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return key && Object.prototype.hasOwnProperty.call(impactFactors2025, key) ? impactFactors2025[key].if : null
 }
 function rowKey(row) { return String(row.study_id || row.doi || row.title || '') }
 
@@ -59,6 +64,7 @@ export function Studies ({ query, onStatusChange }) {
       const A = a?.[sortKey]
       const B = b?.[sortKey]
       // Numeric comparison for year; string comparison for other fields
+      if (sortKey === 'impact_factor_2025') return ((getImpactFactor(a?.journal) ?? -1) - (getImpactFactor(b?.journal) ?? -1)) * dir
       if (sortKey === 'year') return (Number(A || 0) - Number(B || 0)) * dir
       return String(A || '').localeCompare(String(B || ''), 'en') * dir
     })
@@ -100,6 +106,7 @@ export function Studies ({ query, onStatusChange }) {
                 {[
                   { key: 'year', label: 'Year' },
                   { key: 'journal', label: 'Journal' },
+                  { key: 'impact_factor_2025', label: '2025 IF' },
                   { key: 'title', label: 'Title' },
                   { key: 'authors', label: 'Authors' }
                 ].map(({ key, label }) => (
@@ -114,12 +121,13 @@ export function Studies ({ query, onStatusChange }) {
             </thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={4} className='px-3 py-4 text-gray-500'>No data</td></tr>
+                <tr><td colSpan={5} className='px-3 py-4 text-gray-500'>No data</td></tr>
               ) : (
                 pageRows.map((r, i) => (
                   <tr key={i} className={classNames(i % 2 ? 'bg-white' : 'bg-gray-50')}>
                     <td className='whitespace-nowrap px-3 py-2 align-top'>{r.year ?? ''}</td>
                     <td className='px-3 py-2 align-top'>{pubmedUrl(r) ? <a className='journal-link' href={pubmedUrl(r)} target='_blank' rel='noopener noreferrer' title='Open paper on PubMed'>{r.journal || 'PubMed'}</a> : (r.journal || '')}</td>
+                    <td className='whitespace-nowrap px-3 py-2 align-top'>{getImpactFactor(r.journal) ?? '—'}</td>
                     <td className='max-w-[540px] px-3 py-2 align-top'>{r.title || ''}</td>
                     <td className='px-3 py-2 align-top'>{r.authors || ''}</td>
                   </tr>

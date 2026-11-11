@@ -1,0 +1,4 @@
+2025 IF values extracted from user-provided JCRI-mpact-Factors_2025.pdf (JCR IMPACT FACTOR LIST 2025, edited by Dr. Niaz Ali).
+This is a third-party compilation, not an independently verified Clarivate JCR export.
+The frontend matches journal names by normalized exact name; unmatched journals show —.
+PDF extraction may miss entries with unusual formatting. Please spot-check important journals against your query access.
