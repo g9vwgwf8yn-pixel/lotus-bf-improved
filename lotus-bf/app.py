@@ -956,36 +956,101 @@ def _build_full_tsquery(expr:str)->str:
         return left
     return parse_or()
 
-# Non-blocking citation enrichment: the frontend fetches this after papers render.
-# OpenAlex citation counts are not guaranteed to cover every PubMed paper.
+# Citation counts from scholarly metadata services. Do not use Google Scholar scraping.
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 import json as _json
 import urllib.request as _urlrequest
+import urllib.error as _urlerror
+import difflib as _difflib
 
-@lru_cache(maxsize=12000)
-def _openalex_citations(doi, title):
-    """Best-effort citation count from OpenAlex. Never invent a count."""
-    try:
-        doi = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', (doi or '').strip(), flags=re.I)
-        title = (title or '').strip()
-        if doi.startswith('10.'):
-            url = 'https://api.openalex.org/works/https://doi.org/' + urllib.parse.quote(doi, safe='/')
-        elif title:
-            url = 'https://api.openalex.org/works?per-page=5&search=' + urllib.parse.quote(title)
-        else:
-            return None
-        req = _urlrequest.Request(url, headers={'User-Agent':'NeuroScope/1.0 (academic citation lookup)', 'Accept':'application/json'})
-        with _urlrequest.urlopen(req, timeout=9) as res:
-            data = _json.load(res)
-        if 'results' in data:
-            def norm(x): return re.sub(r'[^a-z0-9]+', '', str(x).lower())
-            data = next((hit for hit in (data.get('results') or []) if norm(hit.get('title', '')) == norm(title)), None)
-            if not data: return None
-        count = data.get('cited_by_count')
-        return int(count) if isinstance(count, int) and count >= 0 else None
-    except Exception:
-        return None
+_citation_cache = {}
+_citation_lock = threading.Lock()
+
+def _normal_title(value):
+    return re.sub(r'[^a-z0-9]+', ' ', str(value or '').casefold()).strip()
+
+def _title_match(a, b):
+    x, y = _normal_title(a), _normal_title(b)
+    return bool(x and y and (x == y or _difflib.SequenceMatcher(None, x, y).ratio() >= .91))
+
+def _json_get(url, timeout=6):
+    req = _urlrequest.Request(url, headers={
+        'User-Agent': 'NeuroScope/1.1 (scholarly metadata; https://openalex.org)',
+        'Accept': 'application/json',
+    })
+    with _urlrequest.urlopen(req, timeout=timeout) as response:
+        return _json.load(response)
+
+def _valid_count(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+def _lookup_openalex(doi, title, pmid):
+    base = 'https://api.openalex.org/works'
+    candidates = []
+    if doi:
+        candidates.append(base + '/https://doi.org/' + urllib.parse.quote(doi, safe='/'))
+    if pmid:
+        candidates.append(base + '/https://pubmed.ncbi.nlm.nih.gov/' + urllib.parse.quote(pmid, safe=''))
+    if title:
+        candidates.append(base + '?per-page=5&search=' + urllib.parse.quote(title))
+    for url in candidates:
+        try:
+            data = _json_get(url)
+            hits = data.get('results') if isinstance(data, dict) else None
+            hits = hits if isinstance(hits, list) else [data]
+            for hit in hits:
+                if not isinstance(hit, dict): continue
+                # Exact identifier lookups are reliable; fuzzy title search must match.
+                if 'search=' in url and not _title_match(title, hit.get('title')): continue
+                count = _valid_count(hit.get('cited_by_count'))
+                if count is not None: return count, 'OpenAlex'
+        except (_urlerror.HTTPError, _urlerror.URLError, TimeoutError, ValueError, OSError):
+            continue
+    return None, None
+
+def _lookup_semantic_scholar(doi, title, pmid):
+    base = 'https://api.semanticscholar.org/graph/v1/paper/'
+    ids = []
+    if doi: ids.append('DOI:' + doi)
+    if pmid: ids.append('PMID:' + pmid)
+    for identifier in ids:
+        try:
+            url = base + urllib.parse.quote(identifier, safe=':') + '?fields=title,citationCount'
+            hit = _json_get(url)
+            count = _valid_count(hit.get('citationCount'))
+            if count is not None: return count, 'Semantic Scholar'
+        except (_urlerror.HTTPError, _urlerror.URLError, TimeoutError, ValueError, OSError):
+            continue
+    if title:
+        try:
+            url = 'https://api.semanticscholar.org/graph/v1/paper/search?limit=5&fields=title,citationCount&query=' + urllib.parse.quote(title)
+            data = _json_get(url)
+            for hit in data.get('data', []):
+                if _title_match(title, hit.get('title')):
+                    count = _valid_count(hit.get('citationCount'))
+                    if count is not None: return count, 'Semantic Scholar'
+        except (_urlerror.HTTPError, _urlerror.URLError, TimeoutError, ValueError, OSError):
+            pass
+    return None, None
+
+def _citation_lookup(doi, title, pmid):
+    doi = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', (doi or '').strip(), flags=re.I).lower()
+    doi = doi if doi.startswith('10.') else ''
+    title = (title or '').strip()
+    pmid = re.sub(r'\D', '', str(pmid or ''))
+    cache_key = (doi, _normal_title(title), pmid)
+    with _citation_lock:
+        cached = _citation_cache.get(cache_key)
+    if cached is not None: return cached
+    count, source = _lookup_openalex(doi, title, pmid)
+    if count is None: count, source = _lookup_semantic_scholar(doi, title, pmid)
+    result = {'count': count, 'source': source, 'status': 'ok' if count is not None else 'unavailable'}
+    # Cache only successful matches. Temporary HTTP errors should be retried later.
+    if count is not None:
+        with _citation_lock:
+            if len(_citation_cache) >= 10000: _citation_cache.clear()
+            _citation_cache[cache_key] = result
+    return result
 
 @bp.post('/api/citations')
 def citation_counts():
@@ -998,7 +1063,14 @@ def citation_counts():
         if not isinstance(p, dict): return None, None
         key = str(p.get('id', ''))[:300]
         if not key: return None, None
-        return key, _openalex_citations(str(p.get('doi') or '')[:300], str(p.get('title') or '')[:400])
-    with ThreadPoolExecutor(max_workers=8) as pool:
+        try:
+            result = _citation_lookup(str(p.get('doi') or '')[:300], str(p.get('title') or '')[:400], str(p.get('pmid') or '')[:30])
+        except Exception:
+            current_app.logger.exception('Citation enrichment error')
+            result = {'count': None, 'source': None, 'status': 'unavailable'}
+        return key, result
+    with ThreadPoolExecutor(max_workers=5) as pool:
         pairs = list(pool.map(lookup, papers))
-    return jsonify({'counts': {k:v for k,v in pairs if k and v is not None}})
+    return jsonify({'counts': {k: v['count'] for k, v in pairs if k and v['count'] is not None},
+                    'sources': {k: v['source'] for k, v in pairs if k and v['source']},
+                    'statuses': {k: v['status'] for k, v in pairs if k}})

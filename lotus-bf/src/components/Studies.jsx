@@ -74,7 +74,7 @@ export function Studies ({ query, onStatusChange }) {
   useEffect(() => {
     if (!pageSignature) { setCitationsLoading(false); return }
     const ac = new AbortController()
-    const batch = pageRows.filter(r => citations[rowKey(r)] === undefined).map(r => ({id: rowKey(r), doi: r.doi || '', title: r.title || ''}))
+    const batch = pageRows.filter(r => citations[rowKey(r)] === undefined).map(r => ({id: rowKey(r), doi: r.doi || '', title: r.title || '', pmid: r.pmid || r.pubmed_id || ''}))
     if (!batch.length) { setCitationsLoading(false); return }
     setCitationsLoading(true)
     fetch('/api/citations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({papers:batch}), signal:ac.signal})
@@ -89,7 +89,7 @@ export function Studies ({ query, onStatusChange }) {
   return (
     <div className='flex flex-col rounded-2xl border'>
       <div className='flex items-center justify-between p-3'>
-        <div className='card__title'>Research papers <span className='citation-note'>(citations: OpenAlex; N/A = unavailable)</span></div>
+        <div className='card__title'>Research papers <span className='citation-note'>(citations: OpenAlex / Semantic Scholar)</span></div>
         <div className='text-sm text-gray-500'>
            {/* {query ? `Query: ${query}` : 'Query: (empty)'} */}
         </div>
@@ -141,7 +141,7 @@ export function Studies ({ query, onStatusChange }) {
                     <td className='px-3 py-2 align-top'>{pubmedUrl(r) ? <a className='journal-link' href={pubmedUrl(r)} target='_blank' rel='noopener noreferrer' title='Open paper on PubMed'>{r.journal || 'PubMed'}</a> : (r.journal || '')}</td>
                     <td className='max-w-[540px] px-3 py-2 align-top'>{r.title || ''}</td>
                     <td className='px-3 py-2 align-top'>{r.authors || ''}</td>
-                    <td className='px-3 py-2 align-top'>{citations[rowKey(r)] === undefined ? <span className='citation-muted'>Loading…</span> : citations[rowKey(r)] === null ? <span className='citation-muted' title='Citation count unavailable from OpenAlex'>N/A</span> : citations[rowKey(r)]}</td>
+                    <td className='px-3 py-2 align-top'>{citations[rowKey(r)] === undefined ? <span className='citation-muted'>Loading…</span> : citations[rowKey(r)] === null ? <span className='citation-muted' title='Citation count not found in OpenAlex or Semantic Scholar'>N/A</span> : citations[rowKey(r)]}</td>
                   </tr>
                 ))
               )}
