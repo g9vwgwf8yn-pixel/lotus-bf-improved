@@ -837,7 +837,10 @@ def _collect_coords_for_mixed(conn, query_string: str, r: float):
 def create_app():
     # Resolve the Vite output independently of the process working directory.
     frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
-    app = Flask(__name__, static_folder=frontend_dir, static_url_path="/assets")
+    # Disable Flask's default static route: mapping dist to /assets would
+    # incorrectly resolve /assets/index-*.js as dist/index-*.js.
+    # Vite stores those files at dist/assets/index-*.js.
+    app = Flask(__name__, static_folder=None)
     CORS(app, resources={r"/*": {"origins": "*"}})
     app.register_blueprint(bp)
 
