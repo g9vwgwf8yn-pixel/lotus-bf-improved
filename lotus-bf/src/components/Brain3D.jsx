@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 const INITIAL_ANGLE = { yaw: -0.65, pitch: 0.17 }
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
 
-export function Brain3D({ background, activation, threshold, positiveOnly, absoluteValues, opacity = 0.5 }) {
+export function Brain3D({ background, activation, threshold, positiveOnly, absoluteValues }) {
   const canvasRef = useRef(null)
   const angles = useRef({ ...INITIAL_ANGLE })
   const zoom = useRef(0.68)
@@ -43,11 +43,16 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
     const sx = Math.ceil(nx / stride) + 1, sy = Math.ceil(ny / stride) + 1, sz = Math.ceil(nz / stride) + 1
     const index = (x,y,z) => x + sx * (y + sy*z)
     const field = new Float32Array(sx*sy*sz)
+    // Restrict activation to the anatomical brain tissue in the SAME voxel grid.
+    // Do not rescale or shrink activation coordinates to make it fit visually.
+    const anatomyCutoff = Math.max(0, background.max * 0.09)
     const thresholdValue = threshold ?? 0
     for (let z=0;z<sz;z++) for (let y=0;y<sy;y++) for (let x=0;x<sx;x++) {
       const xx=Math.min(nx-1,x*stride), yy=Math.min(ny-1,y*stride), zz=Math.min(nz-1,z*stride)
       const raw=activation.data[xx+nx*(yy+ny*zz)]
-      field[index(x,y,z)] = Number.isFinite(raw) && raw!==0 && (!positiveOnly || raw>0) ? (absoluteValues ? Math.abs(raw) : raw) : 0
+      const brainValue = background.data[xx+nx*(yy+ny*zz)]
+      const inBrain = Number.isFinite(brainValue) && brainValue > anatomyCutoff
+      field[index(x,y,z)] = inBrain && Number.isFinite(raw) && raw!==0 && (!positiveOnly || raw>0) ? (absoluteValues ? Math.abs(raw) : raw) : 0
     }
     // A small 3D blur softens the staircase produced by the 2 mm sampling grid.
     const smooth = new Float32Array(field.length)
@@ -59,7 +64,8 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
       }
       smooth[index(x,y,z)]=sum/weight
     }
-    const iso=Math.max(0.000001,thresholdValue*0.78)
+    // Keep the actual selected threshold: reducing it expands the rendered region.
+    const iso=Math.max(0.000001,thresholdValue)
     const offsets=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]]
     const tetra=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]]
     const coord=(x,y,z)=>[(x*stride-nx/2)/nx,(z*stride-nz/2)/nz,(y*stride-ny/2)/ny]
@@ -128,7 +134,7 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
         ctx.lineTo(tri.b[0], tri.b[1])
         ctx.lineTo(tri.c[0], tri.c[1])
         ctx.closePath()
-        ctx.fillStyle = `rgba(${Math.round(16 + light * 25)},${Math.round(99 + light * 73)},${Math.round(113 + light * 76)},${0.37 + opacity * 0.23})`
+        ctx.fillStyle = `rgba(${Math.round(16 + light * 25)},${Math.round(99 + light * 73)},${Math.round(113 + light * 76)},0.49)`
         ctx.fill()
         // Fine outlines emphasize the sulci without showing individual mesh vertices.
         if (light > 0.82) {
@@ -145,13 +151,24 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
       const points = tri.map(project)
       return { points, depth: points.reduce((sum, p) => sum + p[2], 0) / 3 }
     }).sort((a,b) => a.depth - b.depth)
-    ctx.fillStyle = 'rgba(239,58,72,0.40)'
+    // Fixed 3D material, independent of the 2D Overlay alpha control.
+    // Triangle normals give the connected isosurface directional diffuse light
+    // and a restrained glossy highlight (rather than flat red polygons).
     for (const patch of patches) {
       ctx.beginPath()
       ctx.moveTo(patch.points[0][0], patch.points[0][1])
       ctx.lineTo(patch.points[1][0], patch.points[1][1])
       ctx.lineTo(patch.points[2][0], patch.points[2][1])
       ctx.closePath()
+      const [a,b,c] = patch.points
+      const ux=b[0]-a[0], uy=b[1]-a[1], vx=c[0]-a[0], vy=c[1]-a[1]
+      const facing = Math.abs(ux*vy-uy*vx)
+      const brightness = clamp(0.44 + (a[2]+b[2]+c[2])*0.65 + facing/(size*size*0.012), 0.22, 1)
+      const shine = Math.pow(brightness, 7)
+      const red = Math.round(165 + 77*brightness + 13*shine)
+      const green = Math.round(19 + 37*brightness + 24*shine)
+      const blue = Math.round(31 + 38*brightness + 20*shine)
+      ctx.fillStyle = `rgba(${red},${green},${blue},0.57)`
       ctx.fill()
     }
 
@@ -160,7 +177,7 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
     ctx.fillStyle = '#a8c4ce'
     if (!mesh) ctx.fillText('Loading brain surface…', size / 2, size / 2)
     else if (!active.length) ctx.fillText(activation ? 'No activation at the current threshold' : 'Select a term to show activation', size / 2, 24)
-  }, [mesh, active, canvasSize, viewVersion, opacity, activation])
+  }, [mesh, active, canvasSize, viewVersion, activation])
 
   const onPointerDown = event => {
     drag.current = { x: event.clientX, y: event.clientY }

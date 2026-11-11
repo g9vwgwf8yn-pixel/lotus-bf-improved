@@ -511,7 +511,7 @@ const coord2idx = (c_mm, n, axis) => {
         </div>
       )}
 
-      <Brain3D background={bgRef.current} activation={mapRef.current} threshold={mapThreshold} positiveOnly={posOnly} absoluteValues={useAbs} opacity={overlayAlpha} />
+      <Brain3D background={bgRef.current} activation={mapRef.current} threshold={mapThreshold} positiveOnly={posOnly} absoluteValues={useAbs} />
 
       {/* overlay controls */}
       <div className='rounded-xl border p-3 text-sm'>
