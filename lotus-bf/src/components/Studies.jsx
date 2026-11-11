@@ -12,6 +12,18 @@ function getImpactFactor(journal) {
   const key = String(journal || '').toLowerCase().replace(/[^a-z0-9]/g, '')
   return key && Object.prototype.hasOwnProperty.call(impactFactors2025, key) ? impactFactors2025[key].if : null
 }
+function abbreviateAuthors(value) {
+  if (Array.isArray(value)) return value.map(abbreviateAuthors).join(', ')
+  return String(value || '').split(/,\s*|;\s*/).map(name => {
+    const parts = name.trim().split(/\s+/).filter(Boolean)
+    if (parts.length < 2) return name.trim()
+    // PubMed-style names already ending in initials should remain unchanged.
+    if (parts.slice(1).every(part => /^[A-Z]{1,4}\.?$/.test(part))) return parts.join(' ')
+    const surname = parts[0]
+    const initials = parts.slice(1).map(part => part.split('-').map(bit => bit[0]?.toUpperCase() || '').join('')).join('')
+    return `${surname} ${initials}`
+  }).join(', ')
+}
 function rowKey(row) { return String(row.study_id || row.doi || row.title || '') }
 
 export function Studies ({ query, onStatusChange }) {
@@ -129,7 +141,7 @@ export function Studies ({ query, onStatusChange }) {
                     <td className='px-3 py-2 align-top'>{pubmedUrl(r) ? <a className='journal-link' href={pubmedUrl(r)} target='_blank' rel='noopener noreferrer' title='Open paper on PubMed'>{r.journal || 'PubMed'}</a> : (r.journal || '')}</td>
                     <td className='whitespace-nowrap px-3 py-2 align-top'>{getImpactFactor(r.journal) ?? '—'}</td>
                     <td className='max-w-[540px] px-3 py-2 align-top'>{r.title || ''}</td>
-                    <td className='px-3 py-2 align-top'>{r.authors || ''}</td>
+                    <td className='px-3 py-2 align-top'>{abbreviateAuthors(r.authors)}</td>
                   </tr>
                 ))
               )}

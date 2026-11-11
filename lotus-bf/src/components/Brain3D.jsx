@@ -34,39 +34,54 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
     return () => observer.disconnect()
   }, [])
 
-  // Build an exposed-face surface from thresholded NIfTI voxels, not point markers.
-  // Neighboring active voxels share faces and therefore form solid red regions.
+  // Continuous interpolated isosurface (marching tetrahedra) of the actual NIfTI
+  // activation field. Unlike voxel faces, interpolated triangles have no block edges.
   const active = useMemo(() => {
     if (!background || !activation || activation.dims.join(',') !== background.dims.join(',')) return []
     const [nx, ny, nz] = background.dims
-    const step = 2
-    const sx = Math.ceil(nx / step), sy = Math.ceil(ny / step), sz = Math.ceil(nz / step)
-    const occupied = new Uint8Array(sx * sy * sz)
-    const idx = (x, y, z) => x + sx * (y + sy * z)
-    const cutoff = threshold ?? 0
-    for (let z = 0; z < sz; z++) for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
-      const xx = Math.min(nx - 1, x * step), yy = Math.min(ny - 1, y * step), zz = Math.min(nz - 1, z * step)
-      const raw = activation.data[xx + nx * (yy + ny * zz)]
-      const value = absoluteValues ? Math.abs(raw) : raw
-      if (Number.isFinite(raw) && raw !== 0 && (!positiveOnly || raw > 0) && value >= cutoff) occupied[idx(x,y,z)] = 1
+    const stride = 2
+    const sx = Math.ceil(nx / stride) + 1, sy = Math.ceil(ny / stride) + 1, sz = Math.ceil(nz / stride) + 1
+    const index = (x,y,z) => x + sx * (y + sy*z)
+    const field = new Float32Array(sx*sy*sz)
+    const thresholdValue = threshold ?? 0
+    for (let z=0;z<sz;z++) for (let y=0;y<sy;y++) for (let x=0;x<sx;x++) {
+      const xx=Math.min(nx-1,x*stride), yy=Math.min(ny-1,y*stride), zz=Math.min(nz-1,z*stride)
+      const raw=activation.data[xx+nx*(yy+ny*zz)]
+      field[index(x,y,z)] = Number.isFinite(raw) && raw!==0 && (!positiveOnly || raw>0) ? (absoluteValues ? Math.abs(raw) : raw) : 0
     }
-    const quads = []
-    const norm = (x,y,z) => [(x * step - nx/2)/nx, (z * step - nz/2)/nz, (y * step - ny/2)/ny]
-    const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
-    for (let z = 0; z < sz; z++) for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
-      if (!occupied[idx(x,y,z)]) continue
-      for (const [dx,dy,dz] of dirs) {
-        const xx=x+dx,yy=y+dy,zz=z+dz
-        if (xx>=0 && xx<sx && yy>=0 && yy<sy && zz>=0 && zz<sz && occupied[idx(xx,yy,zz)]) continue
-        const a=x+(dx>0?1:0),b=y+(dy>0?1:0),c=z+(dz>0?1:0)
-        let corners
-        if (dx) corners=[[a,y,z],[a,y+1,z],[a,y+1,z+1],[a,y,z+1]]
-        else if (dy) corners=[[x,b,z],[x+1,b,z],[x+1,b,z+1],[x,b,z+1]]
-        else corners=[[x,y,c],[x+1,y,c],[x+1,y+1,c],[x,y+1,c]]
-        quads.push(corners.map(q => norm(...q)))
+    // A small 3D blur softens the staircase produced by the 2 mm sampling grid.
+    const smooth = new Float32Array(field.length)
+    for(let z=1;z<sz-1;z++) for(let y=1;y<sy-1;y++) for(let x=1;x<sx-1;x++) {
+      let sum=0, weight=0
+      for(let dz=-1;dz<=1;dz++) for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+        const w=(dx===0?2:1)*(dy===0?2:1)*(dz===0?2:1)
+        sum+=field[index(x+dx,y+dy,z+dz)]*w; weight+=w
+      }
+      smooth[index(x,y,z)]=sum/weight
+    }
+    const iso=Math.max(0.000001,thresholdValue*0.78)
+    const offsets=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]]
+    const tetra=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]]
+    const coord=(x,y,z)=>[(x*stride-nx/2)/nx,(z*stride-nz/2)/nz,(y*stride-ny/2)/ny]
+    const triangles=[]
+    const interpolate=(a,b,va,vb)=>{
+      const t=clamp((iso-va)/(vb-va||1),0,1)
+      return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]
+    }
+    for(let z=1;z<sz-2;z++) for(let y=1;y<sy-2;y++) for(let x=1;x<sx-2;x++) {
+      const values=offsets.map(([dx,dy,dz])=>smooth[index(x+dx,y+dy,z+dz)])
+      if(Math.max(...values)<iso || Math.min(...values)>=iso) continue
+      const points=offsets.map(([dx,dy,dz])=>coord(x+dx,y+dy,z+dz))
+      for(const tet of tetra){
+        const inside=tet.filter(i=>values[i]>=iso),outside=tet.filter(i=>values[i]<iso)
+        if(!inside.length||!outside.length)continue
+        const edge=(a,b)=>interpolate(points[a],points[b],values[a],values[b])
+        if(inside.length===1){const a=inside[0];triangles.push([edge(a,outside[0]),edge(a,outside[1]),edge(a,outside[2])])}
+        else if(outside.length===1){const a=outside[0];triangles.push([edge(a,inside[0]),edge(a,inside[2]),edge(a,inside[1])])}
+        else {const [a,b]=inside,[c,d]=outside;const p=edge(a,c),q=edge(a,d),r=edge(b,c),t=edge(b,d);triangles.push([p,q,r],[q,t,r])}
       }
     }
-    return quads
+    return triangles
   }, [background, activation, threshold, positiveOnly, absoluteValues])
 
   useEffect(() => {
@@ -101,7 +116,7 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
         const ux = b[0] - a[0], uy = b[1] - a[1]
         const vx = c[0] - a[0], vy = c[1] - a[1]
         const cross = ux * vy - uy * vx
-        return { a, b, c, depth: (a[2] + b[2] + c[2]) / 3, light: clamp(0.50 + cross / (size * size * 0.014), 0.15, 1) }
+        return { a, b, c, depth: (a[2] + b[2] + c[2]) / 3, light: clamp(0.53 + cross / (size * size * 0.006), 0.12, 1) }
       }).sort((a, b) => a.depth - b.depth)
 
       // Painter's algorithm: filled, connected triangles rather than voxel dots.
@@ -116,8 +131,8 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
         ctx.fillStyle = `rgba(${Math.round(16 + light * 25)},${Math.round(99 + light * 73)},${Math.round(113 + light * 76)},${0.37 + opacity * 0.23})`
         ctx.fill()
         // Fine outlines emphasize the sulci without showing individual mesh vertices.
-        if (light > 0.68) {
-          ctx.strokeStyle = `rgba(104,211,218,${0.025 + light * 0.045})`
+        if (light > 0.82) {
+          ctx.strokeStyle = `rgba(104,211,218,${0.015 + light * 0.018})`
           ctx.lineWidth = 0.6
           ctx.stroke()
         }
@@ -126,15 +141,16 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
 
     // Activation samples come from the selected query's NIfTI volume, not
     // from the decorative brain mesh. They are intentionally visible through it.
-    const patches = active.map(quad => {
-      const points = quad.map(project)
-      return { points, depth: points.reduce((sum, p) => sum + p[2], 0) / 4 }
+    const patches = active.map(tri => {
+      const points = tri.map(project)
+      return { points, depth: points.reduce((sum, p) => sum + p[2], 0) / 3 }
     }).sort((a,b) => a.depth - b.depth)
-    ctx.fillStyle = 'rgba(245,45,57,0.91)'
+    ctx.fillStyle = 'rgba(239,58,72,0.40)'
     for (const patch of patches) {
       ctx.beginPath()
       ctx.moveTo(patch.points[0][0], patch.points[0][1])
-      for (let j=1;j<4;j++) ctx.lineTo(patch.points[j][0],patch.points[j][1])
+      ctx.lineTo(patch.points[1][0], patch.points[1][1])
+      ctx.lineTo(patch.points[2][0], patch.points[2][1])
       ctx.closePath()
       ctx.fill()
     }
@@ -144,9 +160,6 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
     ctx.fillStyle = '#a8c4ce'
     if (!mesh) ctx.fillText('Loading brain surface…', size / 2, size / 2)
     else if (!active.length) ctx.fillText(activation ? 'No activation at the current threshold' : 'Select a term to show activation', size / 2, 24)
-    ctx.textAlign = 'left'
-    ctx.fillStyle = '#91aab4'
-    ctx.fillText('Drag to rotate · Scroll to zoom', 14, size - 15)
   }, [mesh, active, canvasSize, viewVersion, opacity, activation])
 
   const onPointerDown = event => {
@@ -168,6 +181,5 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
   return <section className="brain-3d-panel" aria-label="Interactive 3D brain map">
     <div className="brain-3d-heading"><strong>3D brain activation</strong><button type="button" onClick={() => { angles.current = { ...INITIAL_ANGLE }; zoom.current = 0.68; setViewVersion(version => version + 1) }}>Reset view</button></div>
     <canvas ref={canvasRef} className="brain-3d-canvas" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null }} onPointerCancel={() => { drag.current = null }} onWheel={onWheel} />
-    <div className="brain-3d-legend"><span>● Translucent cortical surface</span><span className="brain-3d-red">● Activation regions</span></div>
   </section>
 }

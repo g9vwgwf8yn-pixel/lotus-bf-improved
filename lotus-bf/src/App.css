@@ -32,3 +32,5 @@
 .studies-card th:nth-child(4),.studies-card td:nth-child(4){width:49%}
 .studies-card th:nth-child(5),.studies-card td:nth-child(5){width:21%}
 .studies-card th:nth-child(3) span{gap:2px}
+
+.qb-term-wrap{position:relative;flex:1 1 180px;min-width:0}.qb-term-wrap input{width:100%}.qb-suggestions{position:absolute;top:100%;left:0;right:0;z-index:20;max-height:250px;overflow-y:auto;background:#fff;border:1px solid #cbd5e1;border-radius:7px;box-shadow:0 8px 20px #12263c25}.qb-suggestions button{display:block;width:100%;border:0;background:white;text-align:left;padding:9px 12px;color:#203044}.qb-suggestions button:hover{background:#e8f2f8}
