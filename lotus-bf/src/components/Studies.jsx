@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 
 function classNames (...xs) { return xs.filter(Boolean).join(' ') }
-function journalUrl(row) {
-  const doi = String(row.doi || '').trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')
-  if (doi && /^10\.\d{4,9}\//.test(doi)) return `https://doi.org/${encodeURIComponent(doi).replace('%2F', '/')}`
-  if (row.journal) return `https://www.google.com/search?q=${encodeURIComponent(row.journal + ' journal')}`
-  return null
+function pubmedUrl(row) {
+  const pmid = String(row.pmid || row.pubmed_id || '').trim()
+  if (/^\d+$/.test(pmid)) return `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`
+  const title = String(row.title || '').trim()
+  return title ? `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(title + '[Title]')}` : null
 }
+function rowKey(row) { return String(row.study_id || row.doi || row.title || '') }
 
 export function Studies ({ query }) {
   const [rows, setRows] = useState([])
+  const [citations, setCitations] = useState({})
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const [sortKey, setSortKey] = useState('year')
@@ -57,19 +59,31 @@ export function Studies ({ query }) {
       const A = a?.[sortKey]
       const B = b?.[sortKey]
       // Numeric comparison for year; string comparison for other fields
+      if (sortKey === 'citations') return ((citations[rowKey(a)] ?? -1) - (citations[rowKey(b)] ?? -1)) * dir
       if (sortKey === 'year') return (Number(A || 0) - Number(B || 0)) * dir
       return String(A || '').localeCompare(String(B || ''), 'en') * dir
     })
     return arr
-  }, [rows, sortKey, sortDir])
+  }, [rows, sortKey, sortDir, citations])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize)
+  const pageSignature = pageRows.map(rowKey).join('|')
+  useEffect(() => {
+    if (!pageSignature) return
+    const ac = new AbortController()
+    const batch = pageRows.filter(r => citations[rowKey(r)] === undefined).map(r => ({id: rowKey(r), doi: r.doi || '', title: r.title || ''}))
+    if (!batch.length) return
+    fetch('/api/citations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({papers:batch}), signal:ac.signal})
+      .then(r => r.ok ? r.json() : null).then(data => {if (data?.counts && !ac.signal.aborted) setCitations(old => ({...old, ...data.counts}))}).catch(() => {})
+    return () => ac.abort()
+  // Citation retrieval is intentionally non-blocking; results appear as they arrive.
+  }, [pageSignature])
 
   return (
     <div className='flex flex-col rounded-2xl border'>
       <div className='flex items-center justify-between p-3'>
-        <div className='card__title'>Studies</div>
+        <div className='card__title'>Research papers <span className='citation-note'>(citation counts: OpenAlex, when available)</span></div>
         <div className='text-sm text-gray-500'>
            {/* {query ? `Query: ${query}` : 'Query: (empty)'} */}
         </div>
@@ -99,7 +113,8 @@ export function Studies ({ query }) {
                   { key: 'year', label: 'Year' },
                   { key: 'journal', label: 'Journal' },
                   { key: 'title', label: 'Title' },
-                  { key: 'authors', label: 'Authors' }
+                  { key: 'authors', label: 'Authors' },
+                  { key: 'citations', label: 'Citations' }
                 ].map(({ key, label }) => (
                   <th key={key} className='cursor-pointer px-3 py-2 font-semibold' onClick={() => changeSort(key)}>
                     <span className='inline-flex items-center gap-2'>
@@ -112,14 +127,15 @@ export function Studies ({ query }) {
             </thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={4} className='px-3 py-4 text-gray-500'>No data</td></tr>
+                <tr><td colSpan={5} className='px-3 py-4 text-gray-500'>No data</td></tr>
               ) : (
                 pageRows.map((r, i) => (
                   <tr key={i} className={classNames(i % 2 ? 'bg-white' : 'bg-gray-50')}>
                     <td className='whitespace-nowrap px-3 py-2 align-top'>{r.year ?? ''}</td>
-                    <td className='px-3 py-2 align-top'>{journalUrl(r) ? <a className='journal-link' href={journalUrl(r)} target='_blank' rel='noopener noreferrer' title={r.doi ? '開啟論文 DOI' : '搜尋期刊官方網站'}>{r.journal || '開啟論文'}</a> : (r.journal || '')}</td>
-                    <td className='max-w-[540px] px-3 py-2 align-top'><div className='truncate' title={r.title}>{r.title || ''}</div></td>
+                    <td className='px-3 py-2 align-top'>{pubmedUrl(r) ? <a className='journal-link' href={pubmedUrl(r)} target='_blank' rel='noopener noreferrer' title='Open paper on PubMed'>{r.journal || 'PubMed'}</a> : (r.journal || '')}</td>
+                    <td className='max-w-[540px] px-3 py-2 align-top'><a className='paper-link' href={pubmedUrl(r) || '#'} target='_blank' rel='noopener noreferrer'>{r.title || ''}</a></td>
                     <td className='px-3 py-2 align-top'>{r.authors || ''}</td>
+                    <td className='px-3 py-2 align-top'>{citations[rowKey(r)] ?? <span className='citation-muted'>—</span>}</td>
                   </tr>
                 ))
               )}

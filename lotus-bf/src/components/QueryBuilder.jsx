@@ -1,56 +1,37 @@
-export function QueryBuilder({ query, setQuery }) {
-  const append = (token) => setQuery((q) => (q ? `${q} ${token}` : token));
+import { useEffect, useState } from 'react'
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      setQuery(e.currentTarget.value);
+export function QueryBuilder({ query, setQuery }) {
+  const [first, setFirst] = useState('')
+  const [operator, setOperator] = useState('AND')
+  const [second, setSecond] = useState('')
+
+  useEffect(() => {
+    const match = query.match(/^(.+?)\s+(AND|OR|NOT)\s+(.+)$/i)
+    if (match) {
+      setFirst(match[1]); setOperator(match[2].toUpperCase()); setSecond(match[3])
+    } else {
+      setFirst(query); setSecond('')
     }
-  };
+  }, [query])
+
+  function submit(event) {
+    event.preventDefault()
+    const a = first.trim()
+    const b = second.trim()
+    if (!a) return
+    setQuery(b ? `${a} ${operator} ${b}` : a)
+  }
 
   return (
-    <div className="flex flex-col gap-3 qb">
-      {/* Header */}
-      <div className="flex items-center">
-        <div className="card__title">Query Builder</div>
-      </div>
-
-      {/* Input */}
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Create a query here, e.g.: [-22,-4,18] NOT emotion"
-        className="qb__input w-full rounded-xl border px-3 py-2 focus:outline-none focus:ring"
-       style={{ width: "100%" }}/>
-
-      {/* Operators + Reset (single row) */}
-      <div className="flex gap-2 flex-nowrap overflow-x-auto">
-        {[
-          { label: 'AND', onClick: () => append('AND') },
-          { label: 'OR', onClick: () => append('OR') },
-          { label: 'NOT', onClick: () => append('NOT') },
-          { label: '(', onClick: () => append('(') },
-          { label: ')', onClick: () => append(')') },
-          // Reset moved here after ')' per requirement
-          { label: 'Reset', onClick: () => setQuery('') },
-        ].map((b) => (
-          <button
-            key={b.label}
-            onClick={b.onClick}
-            className="rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
-          >
-            {b.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tip (English) */}
-      {/*<div className="text-xs text-gray-600">
-        Tip: You can mix MNI locations in the query string, such as "[-22,-4,-18] NOT emotion" (without the quotes).
-      </div>*/}
-
-      {/* The "Current Query" row was removed per requirement #3. */}
-    </div>
-  );
+    <form className="qb-simple" onSubmit={submit} aria-label="Advanced search">
+      <input aria-label="First term or coordinate" value={first} onChange={e => setFirst(e.target.value)} placeholder="First term or [x,y,z]" />
+      <select aria-label="Search operator" value={operator} onChange={e => setOperator(e.target.value)}>
+        <option value="AND">AND</option>
+        <option value="OR">OR</option>
+        <option value="NOT">NOT</option>
+      </select>
+      <input aria-label="Second term or coordinate" value={second} onChange={e => setSecond(e.target.value)} placeholder="Second term (optional)" />
+      <button type="submit" className="qb-simple__submit">Search</button>
+    </form>
+  )
 }

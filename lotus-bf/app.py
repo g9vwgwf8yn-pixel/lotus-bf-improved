@@ -3,6 +3,10 @@ import os
 from sqlalchemy import text
 import re
 import urllib.parse
+import hashlib
+import shutil
+import threading
+from functools import lru_cache
 from typing import List, Tuple, Dict, Any, Optional
 from flask_cors import CORS
 
@@ -395,6 +399,15 @@ def debug_nii_meta():
         "affine": [[float(x) for x in aff[i,:]] for i in range(4)]
     }), 200
 
+@lru_cache(maxsize=1024)
+def _autocomplete_cached(prefix, limit):
+    with get_engine().connect() as conn:
+        return tuple(conn.execute(text("""
+            SELECT DISTINCT term FROM ns.annotations_terms
+            WHERE term LIKE :prefix AND term <> ''
+            ORDER BY term LIMIT :limit
+        """), {'prefix': prefix.replace('%', '\\%').replace('_', '\\_') + '%', 'limit': limit}).scalars().all())
+
 @bp.get("/terms")
 @bp.get("/terms/<term>")
 def terms(term: str=None):
@@ -409,13 +422,7 @@ def terms(term: str=None):
             limit = min(max(int(request.args.get("limit", "40")), 1), 100)
         except ValueError:
             limit = 40
-        with get_engine().connect() as conn:
-            rows = conn.execute(text("""
-                SELECT DISTINCT term FROM ns.annotations_terms
-                WHERE term ILIKE :prefix
-                  AND term <> ''
-                ORDER BY term LIMIT :limit
-            """), {"prefix": search.replace("%", "\\%").replace("_", "\\_") + "%", "limit": limit}).scalars().all()
+        rows = _autocomplete_cached(search, limit)
         return jsonify({"terms": rows}), 200
     eng = get_engine()
     with eng.begin() as conn:
@@ -541,6 +548,15 @@ def mixed_query_studies(query_string: str):
 @bp.get("/query/<path:query_string>/locations")
 def mixed_query_locations(query_string: str):
     r = request.args.get("r", default=6.0, type=float)
+    # Cache completed maps on the service instance so repeated queries return immediately.
+    cache_dir = os.path.join(tempfile.gettempdir(), 'lotus_bf_maps')
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_key = hashlib.sha256(f'{query_string}|{voxel}|{fwhm}|{kernel}|{r}'.encode()).hexdigest()
+    cached_path = os.path.join(cache_dir, cache_key + '.nii.gz')
+    if os.path.isfile(cached_path):
+        response = send_file(cached_path, as_attachment=True, download_name='query_mixed_map.nii.gz', mimetype='application/gzip')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
     eng = get_engine()
     with eng.begin() as conn:
         conn.execute(text("SET search_path TO ns, public;"))
@@ -635,8 +651,13 @@ def mixed_query_nii(query_string: str):
             path, n = _make_nii_from_coords(coords_by_study, voxel=voxel, fwhm=fwhm, kernel=kernel)
         except Exception as e:
             return jsonify({"error": str(e)}), 400
-    filename = "query_mixed_map.nii.gz"
-    return send_file(path, as_attachment=True, download_name=filename, mimetype="application/octet-stream")
+    try:
+        os.replace(path, cached_path)
+    except OSError:
+        shutil.copyfile(path, cached_path)
+    response = send_file(cached_path, as_attachment=True, download_name='query_mixed_map.nii.gz', mimetype='application/gzip')
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
 
 def _split_mixed_query(qs: str):
     s = urllib.parse.unquote(qs).strip()
@@ -927,3 +948,58 @@ def _build_full_tsquery(expr:str)->str:
             else: break
         return left
     return parse_or()
+
+# Non-blocking citation enrichment: the frontend fetches this after papers render.
+# OpenAlex citation counts are not guaranteed to cover every PubMed paper.
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+import json as _json
+import urllib.request as _urlrequest
+
+@lru_cache(maxsize=12000)
+def _openalex_citations(doi, title):
+    try:
+        if doi:
+            doi = re.sub(r'^https?://(?:dx\.)?doi\.org/', '', doi.strip(), flags=re.I)
+            if doi.startswith('10.'):
+                url = 'https://api.openalex.org/works/https://doi.org/' + urllib.parse.quote(doi, safe='/')
+            else:
+                url = None
+        else:
+            url = None
+        if not url and title:
+            url = 'https://api.openalex.org/works?per-page=1&search=' + urllib.parse.quote(title)
+        if not url:
+            return None
+        req = _urlrequest.Request(url, headers={'User-Agent':'LoTUS-BF-research/1.0 (citation lookup)', 'Accept':'application/json'})
+        with _urlrequest.urlopen(req, timeout=3.5) as res:
+            data = _json.load(res)
+        if 'results' in data:
+            hits = data.get('results') or []
+            if not hits:
+                return None
+            # Do not misattribute a citation count to a loosely matching title.
+            def norm(x): return re.sub(r'[^a-z0-9]+', '', str(x).lower())
+            if norm(hits[0].get('title', '')) != norm(title):
+                return None
+            data = hits[0]
+        count = data.get('cited_by_count')
+        return int(count) if isinstance(count, int) and count >= 0 else None
+    except Exception:
+        return None
+
+@bp.post('/api/citations')
+def citation_counts():
+    body = request.get_json(silent=True) or {}
+    papers = body.get('papers') or []
+    if not isinstance(papers, list):
+        return jsonify({'error': 'papers must be an array'}), 400
+    papers = papers[:20]
+    def lookup(p):
+        if not isinstance(p, dict): return None, None
+        key = str(p.get('id', ''))[:300]
+        if not key: return None, None
+        return key, _openalex_citations(str(p.get('doi') or '')[:300], str(p.get('title') or '')[:400])
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        pairs = list(pool.map(lookup, papers))
+    return jsonify({'counts': {k:v for k,v in pairs if k and v is not None}})
