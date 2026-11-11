@@ -6,3 +6,4 @@ numpy>=1.26,<3
 scipy>=1.11,<2
 nibabel>=5,<6
 gunicorn>=22,<24
+psycopg[binary]>=3.1,<4
