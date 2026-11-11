@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Terms } from './components/Terms'
 import { QueryBuilder } from './components/QueryBuilder'
 import { Studies } from './components/Studies'
@@ -8,36 +8,39 @@ import './App.css'
 
 export default function App () {
   const [query, setQuery] = useUrlQueryState('q')
+  const [tab, setTab] = useState('maps')
   const handlePickTerm = useCallback((term) => {
-    setQuery(q => q ? `${q} ${term}` : term)
+    setQuery(term)
+    setTab('maps')
   }, [setQuery])
   return (
     <div className="app">
       <header className="app__header">
         <div className="app__eyebrow">NEUROINFORMATICS · RESEARCH TOOL</div>
-        <div className="app__header-row">
+        <h1 className="app__title">LoTUS-BF <span>研究資料查詢</span></h1>
+        <p className="app__subtitle">Location-or-Term Unified Search for Brain Functions</p>
+      </header>
+      <div className="search-panel">
+        <div className="search-panel__heading">搜尋腦功能術語</div>
+        <Terms onPickTerm={handlePickTerm} />
+        <details className="advanced-query">
+          <summary>進階查詢（AND / OR / NOT / 座標）</summary>
+          <QueryBuilder query={query} setQuery={setQuery} />
+        </details>
+      </div>
+      <main className="research-panel">
+        <div className="research-panel__heading">
           <div>
-            <h1 className="app__title">LoTUS-BF <span>研究資料查詢</span></h1>
-            <p className="app__subtitle">Location-or-Term Unified Search for Brain Functions</p>
+            <h2>{query || '腦功能研究資料'}</h2>
+            <p>搜尋術語後可切換腦圖與研究列表；在腦圖上點擊可同步更新三個切面。</p>
           </div>
         </div>
-      </header>
-
-      <main className="app__grid">
-        <section className="card card--terms" aria-label="術語搜尋">
-          <div className="section-label">01 <span>術語搜尋</span></div>
-          <Terms onPickTerm={handlePickTerm} />
-        </section>
-        <section className="card card--results" aria-label="查詢與研究結果">
-          <div className="section-label">02 <span>查詢條件與研究列表</span></div>
-          <QueryBuilder query={query} setQuery={setQuery} />
-          <div className="divider" />
-          <Studies query={query} />
-        </section>
-        <section className="card card--viewer" aria-label="腦部影像">
-          <div className="section-label">03 <span>腦部影像</span></div>
-          <NiiViewer query={query} />
-        </section>
+        <nav className="research-tabs" aria-label="研究結果檢視模式">
+          <button type="button" role="tab" aria-selected={tab === 'maps'} className={tab === 'maps' ? 'active' : ''} onClick={() => setTab('maps')}>Maps 腦部影像</button>
+          <button type="button" role="tab" aria-selected={tab === 'studies'} className={tab === 'studies' ? 'active' : ''} onClick={() => setTab('studies')}>Studies 研究列表</button>
+        </nav>
+        <section className="research-content" hidden={tab !== 'maps'} aria-label="腦部影像"><NiiViewer query={query} /></section>
+        <section className="research-content" hidden={tab !== 'studies'} aria-label="研究列表"><Studies query={query} /></section>
       </main>
       <footer className="app__footer">LoTUS-BF · Neurosynth-based research exploration · 查詢結果僅供研究與教學使用</footer>
     </div>

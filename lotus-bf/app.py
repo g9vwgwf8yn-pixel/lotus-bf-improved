@@ -402,25 +402,27 @@ def terms(term: str=None):
     - GET /terms -> return all terms (strip 'terms_abstract_tfidf__' prefix)
     - GET /terms/<term> -> return related terms (co-occurrence/Jaccard)
     """
+    # Fast autocomplete: search the normalized term column, not every JSONB key.
+    search = (request.args.get("search") or "").strip().lower()
+    if term is None and search:
+        try:
+            limit = min(max(int(request.args.get("limit", "40")), 1), 100)
+        except ValueError:
+            limit = 40
+        with get_engine().connect() as conn:
+            rows = conn.execute(text("""
+                SELECT DISTINCT term FROM ns.annotations_terms
+                WHERE term ILIKE :prefix
+                  AND term <> ''
+                ORDER BY term LIMIT :limit
+            """), {"prefix": search.replace("%", "\\%").replace("_", "\\_") + "%", "limit": limit}).scalars().all()
+        return jsonify({"terms": rows}), 200
     eng = get_engine()
     with eng.begin() as conn:
         conn.execute(text("SET search_path TO ns, public;"))
         if not term:
-            sql = text("""
-                SELECT DISTINCT
-                  CASE WHEN key LIKE 'terms_abstract_tfidf__%%'
-                       THEN SUBSTRING(key FROM char_length('terms_abstract_tfidf__')+1)
-                       ELSE key
-                  END AS term
-                FROM (
-                  SELECT jsonb_object_keys(terms) AS key
-                  FROM ns.annotations_json
-                ) j
-                ORDER BY term
-            """)
-            rows = conn.execute(sql).fetchall()
-            terms = [r.term for r in rows if not re.match(r'^\d', (r.term or ""))]
-            return jsonify({"terms": terms}), 200
+            rows = conn.execute(text("SELECT DISTINCT term FROM ns.annotations_terms WHERE term <> '' ORDER BY term")).scalars().all()
+            return jsonify({"terms": [r for r in rows if not re.match(r'^\d', r or '')]}), 200
         else:
             limit, offset = _limit_offset()
             limit_clause, lp = _make_limit_clause(limit, offset)

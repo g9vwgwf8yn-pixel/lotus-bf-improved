@@ -48,3 +48,26 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .terms__suggestion { display:block; width:100%; border:0; border-bottom:1px solid #edf1f4; border-radius:0; background:white; text-align:left; font-weight:400; font-size:13px; padding:10px 8px; }
 .terms__suggestion:hover,.terms__suggestion:focus-visible { background:#edf5f8; }
 .journal-link { color:#176b93; text-decoration:underline; text-underline-offset:2px; }
+
+/* Neurosynth-inspired layout: separate Maps / Studies tabs */
+.app { max-width: 1500px; }
+.search-panel { position:relative; z-index:5; max-width:680px; margin:0 0 22px; }
+.search-panel__heading { font-size:14px; font-weight:700; color:#294859; margin-bottom:9px; }
+.search-panel .terms__controls input { font-size:16px; padding:12px 14px; background:#fff; }
+.search-panel .terms__list { position:absolute; top:79px; left:0; width:min(100%, 570px); z-index:20; background:#fff; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 12px 30px rgba(15,23,42,.15); max-height:330px; overflow-y:auto; }
+.search-panel .terms__suggestion { font-size:14px; }
+.advanced-query { margin-top:12px; color:#476579; font-size:13px; }
+.advanced-query summary { cursor:pointer; }
+.advanced-query .qb { margin-top:10px; background:#fff; border:1px solid #e0e6eb; border-radius:9px; padding:12px; }
+.research-panel { background:#fff; border:1px solid var(--border); border-radius:10px; padding:20px 22px; min-height:500px; }
+.research-panel__heading h2 { font-size:27px; font-weight:500; margin:0 0 7px; overflow-wrap:anywhere; }
+.research-panel__heading p { font-size:13px; color:#64748b; margin:0 0 22px; }
+.research-tabs { display:flex; gap:8px; border-bottom:1px solid #dbe4e9; margin-bottom:18px; }
+.research-tabs button { border:0; border-radius:7px 7px 0 0; font-size:16px; font-weight:500; padding:12px 22px; background:transparent; }
+.research-tabs button.active { color:#fff; background:#387fae; }
+.research-content[hidden] { display:none!important; }
+.research-content { min-width:0; }
+.research-content canvas { height:auto!important; width:100%!important; image-rendering:auto; aspect-ratio:auto; touch-action:manipulation; }
+.research-content .grid.grid-cols-3 { gap:20px!important; }
+.research-content .journal-link { color:#1878b6; }
+@media(max-width:760px) { .research-panel { padding:12px; } .research-content .grid.grid-cols-3 { grid-template-columns:1fr!important; } .research-tabs button { font-size:14px; padding:10px 13px; } }

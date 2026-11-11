@@ -341,8 +341,9 @@ const coord2idx = (c_mm, n, axis) => {
   function onCanvasClick (e, axis) {
     const canvas = e.currentTarget
     const rect = canvas.getBoundingClientRect()
-    const x = Math.floor((e.clientX - rect.left) * canvas.width / rect.width)
-    const y = Math.floor((e.clientY - rect.top) * canvas.height / rect.height)
+    if (!rect.width || !rect.height || !canvas.width || !canvas.height) return
+    const x = clamp(Math.floor((e.clientX - rect.left) * canvas.width / rect.width), 0, canvas.width - 1)
+    const y = clamp(Math.floor((e.clientY - rect.top) * canvas.height / rect.height), 0, canvas.height - 1)
     const srcY = canvas.height - 1 - y // invert because we draw with vertical flip
     const [nx,ny,nz] = dims
     
@@ -501,7 +502,7 @@ const coord2idx = (c_mm, n, axis) => {
             <div key={key} className='flex flex-col gap-2'>
               <div className='text-xs text-gray-600'>{name} ({axisLabel})</div>
               <div className='flex items-center gap-2'>
-                <canvas ref={canvasRef} className='h-64 w-full rounded-xl border' onClick={(e)=>onCanvasClick(e, key)} style={{ cursor: 'crosshair' }} />
+                <canvas ref={canvasRef} className='brain-slice w-full rounded-xl border' title='點擊腦圖任意位置，三個切面會同步移動十字準線' onClick={(e)=>onCanvasClick(e, key)} style={{ cursor: 'crosshair' }} />
               </div>
             </div>
           ))}

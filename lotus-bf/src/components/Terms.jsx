@@ -24,10 +24,13 @@ export function Terms({ onPickTerm }) {
     return () => { clearTimeout(timer); controller.abort() }
   }, [search])
 
+  const submit = () => { const value = search.trim(); if (value) { onPickTerm(value); setSearch('') } }
+
   return <div className="terms">
     <div className="terms__controls">
-      <input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder="輸入任意腦功能術語…" aria-label="搜尋術語" />
-      {search && <button onClick={() => setSearch('')}>清除</button>}
+      <input className="input" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => { if (e.key === "Enter") submit() }} placeholder="輸入任意腦功能術語…" aria-label="搜尋術語" />
+      {search && <button type="button" onClick={submit}>查詢</button>}
+      {search && <button type="button" onClick={() => setSearch('')}>清除</button>}
     </div>
     {loading && <p className="terms__hint">正在搜尋…</p>}
     {error && <p role="alert" className="terms__error">{error}</p>}
