@@ -67,9 +67,6 @@ export function Studies ({ query, onStatusChange }) {
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize)
-  return () => ac.abort()
-  // Citation retrieval is intentionally non-blocking; results appear as they arrive.
-  }, [pageSignature])
 
   return (
     <div className='flex flex-col rounded-2xl border'>
