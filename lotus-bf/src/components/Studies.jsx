@@ -11,8 +11,6 @@ function rowKey(row) { return String(row.study_id || row.doi || row.title || '')
 
 export function Studies ({ query, onStatusChange }) {
   const [rows, setRows] = useState([])
-  const [citations, setCitations] = useState({})
-  const [citationsLoading, setCitationsLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   useEffect(() => { onStatusChange?.(Boolean(query) && loading) }, [query, loading, onStatusChange])
   const [err, setErr] = useState('')
@@ -61,35 +59,22 @@ export function Studies ({ query, onStatusChange }) {
       const A = a?.[sortKey]
       const B = b?.[sortKey]
       // Numeric comparison for year; string comparison for other fields
-      if (sortKey === 'citations') return ((citations[rowKey(a)] ?? -1) - (citations[rowKey(b)] ?? -1)) * dir
       if (sortKey === 'year') return (Number(A || 0) - Number(B || 0)) * dir
       return String(A || '').localeCompare(String(B || ''), 'en') * dir
     })
     return arr
-  }, [rows, sortKey, sortDir, citations])
+  }, [rows, sortKey, sortDir])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize)
-  const pageSignature = pageRows.map(rowKey).join('|')
-  useEffect(() => {
-    if (!pageSignature) { setCitationsLoading(false); return }
-    const ac = new AbortController()
-    const batch = pageRows.filter(r => citations[rowKey(r)] === undefined).map(r => ({id: rowKey(r), doi: r.doi || '', title: r.title || '', pmid: r.pmid || r.pubmed_id || ''}))
-    if (!batch.length) { setCitationsLoading(false); return }
-    setCitationsLoading(true)
-    fetch('/api/citations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({papers:batch}), signal:ac.signal})
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(data => {if (!ac.signal.aborted) setCitations(old => ({...old, ...Object.fromEntries(batch.map(p => [p.id, data?.counts?.[p.id] ?? null]))}))})
-      .catch(() => {if (!ac.signal.aborted) setCitations(old => ({...old, ...Object.fromEntries(batch.map(p => [p.id, null]))}))})
-      .finally(() => {if (!ac.signal.aborted) setCitationsLoading(false)})
-    return () => ac.abort()
+  return () => ac.abort()
   // Citation retrieval is intentionally non-blocking; results appear as they arrive.
   }, [pageSignature])
 
   return (
     <div className='flex flex-col rounded-2xl border'>
       <div className='flex items-center justify-between p-3'>
-        <div className='card__title'>Research papers <span className='citation-note'>(citations: OpenAlex / Semantic Scholar)</span></div>
+        <div className='card__title'>Research papers</div>
         <div className='text-sm text-gray-500'>
            {/* {query ? `Query: ${query}` : 'Query: (empty)'} */}
         </div>
@@ -119,8 +104,7 @@ export function Studies ({ query, onStatusChange }) {
                   { key: 'year', label: 'Year' },
                   { key: 'journal', label: 'Journal' },
                   { key: 'title', label: 'Title' },
-                  { key: 'authors', label: 'Authors' },
-                  { key: 'citations', label: 'Citations' }
+                  { key: 'authors', label: 'Authors' }
                 ].map(({ key, label }) => (
                   <th key={key} className='cursor-pointer px-3 py-2 font-semibold' onClick={() => changeSort(key)}>
                     <span className='inline-flex items-center gap-2'>
@@ -133,7 +117,7 @@ export function Studies ({ query, onStatusChange }) {
             </thead>
             <tbody>
               {pageRows.length === 0 ? (
-                <tr><td colSpan={5} className='px-3 py-4 text-gray-500'>No data</td></tr>
+                <tr><td colSpan={4} className='px-3 py-4 text-gray-500'>No data</td></tr>
               ) : (
                 pageRows.map((r, i) => (
                   <tr key={i} className={classNames(i % 2 ? 'bg-white' : 'bg-gray-50')}>
@@ -141,7 +125,6 @@ export function Studies ({ query, onStatusChange }) {
                     <td className='px-3 py-2 align-top'>{pubmedUrl(r) ? <a className='journal-link' href={pubmedUrl(r)} target='_blank' rel='noopener noreferrer' title='Open paper on PubMed'>{r.journal || 'PubMed'}</a> : (r.journal || '')}</td>
                     <td className='max-w-[540px] px-3 py-2 align-top'>{r.title || ''}</td>
                     <td className='px-3 py-2 align-top'>{r.authors || ''}</td>
-                    <td className='px-3 py-2 align-top'>{citations[rowKey(r)] === undefined ? <span className='citation-muted'>Loading…</span> : citations[rowKey(r)] === null ? <span className='citation-muted' title='Citation count not found in OpenAlex or Semantic Scholar'>N/A</span> : citations[rowKey(r)]}</td>
                   </tr>
                 ))
               )}

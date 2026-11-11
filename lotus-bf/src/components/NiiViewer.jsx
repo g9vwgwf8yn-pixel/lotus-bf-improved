@@ -4,6 +4,7 @@ const X_RIGHT_ON_SCREEN_RIGHT = true;
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as nifti from 'nifti-reader-js'
+import { Brain3D } from './Brain3D'
 
 const MNI_BG_URL = '/static/mni_2mm.nii.gz'
 
@@ -509,6 +510,8 @@ const coord2idx = (c_mm, n, axis) => {
           ))}
         </div>
       )}
+
+      <Brain3D background={bgRef.current} activation={mapRef.current} threshold={mapThreshold} positiveOnly={posOnly} absoluteValues={useAbs} opacity={overlayAlpha} />
 
       {/* overlay controls */}
       <div className='rounded-xl border p-3 text-sm'>
