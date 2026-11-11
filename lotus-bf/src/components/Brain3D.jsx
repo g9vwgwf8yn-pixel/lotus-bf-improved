@@ -8,7 +8,7 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
 export function Brain3D({ background, activation, threshold, positiveOnly, absoluteValues, opacity = 0.5 }) {
   const canvasRef = useRef(null)
   const angles = useRef({ ...INITIAL_ANGLE })
-  const zoom = useRef(1)
+  const zoom = useRef(0.68)
   const drag = useRef(null)
   const [mesh, setMesh] = useState(null)
   const [viewVersion, setViewVersion] = useState(0)
@@ -34,23 +34,39 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
     return () => observer.disconnect()
   }, [])
 
+  // Build an exposed-face surface from thresholded NIfTI voxels, not point markers.
+  // Neighboring active voxels share faces and therefore form solid red regions.
   const active = useMemo(() => {
     if (!background || !activation || activation.dims.join(',') !== background.dims.join(',')) return []
     const [nx, ny, nz] = background.dims
-    const result = []
+    const step = 2
+    const sx = Math.ceil(nx / step), sy = Math.ceil(ny / step), sz = Math.ceil(nz / step)
+    const occupied = new Uint8Array(sx * sy * sz)
+    const idx = (x, y, z) => x + sx * (y + sy * z)
     const cutoff = threshold ?? 0
-    for (let z = 1; z < nz - 1; z += 2) {
-      for (let y = 1; y < ny - 1; y += 2) {
-        for (let x = 1; x < nx - 1; x += 2) {
-          const raw = activation.data[x + nx * (y + ny * z)]
-          const value = absoluteValues ? Math.abs(raw) : raw
-          if (Number.isFinite(raw) && raw !== 0 && (!positiveOnly || raw > 0) && value >= cutoff) {
-            result.push([(x - nx / 2) / nx, (z - nz / 2) / nz, (y - ny / 2) / ny])
-          }
-        }
+    for (let z = 0; z < sz; z++) for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
+      const xx = Math.min(nx - 1, x * step), yy = Math.min(ny - 1, y * step), zz = Math.min(nz - 1, z * step)
+      const raw = activation.data[xx + nx * (yy + ny * zz)]
+      const value = absoluteValues ? Math.abs(raw) : raw
+      if (Number.isFinite(raw) && raw !== 0 && (!positiveOnly || raw > 0) && value >= cutoff) occupied[idx(x,y,z)] = 1
+    }
+    const quads = []
+    const norm = (x,y,z) => [(x * step - nx/2)/nx, (z * step - nz/2)/nz, (y * step - ny/2)/ny]
+    const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+    for (let z = 0; z < sz; z++) for (let y = 0; y < sy; y++) for (let x = 0; x < sx; x++) {
+      if (!occupied[idx(x,y,z)]) continue
+      for (const [dx,dy,dz] of dirs) {
+        const xx=x+dx,yy=y+dy,zz=z+dz
+        if (xx>=0 && xx<sx && yy>=0 && yy<sy && zz>=0 && zz<sz && occupied[idx(xx,yy,zz)]) continue
+        const a=x+(dx>0?1:0),b=y+(dy>0?1:0),c=z+(dz>0?1:0)
+        let corners
+        if (dx) corners=[[a,y,z],[a,y+1,z],[a,y+1,z+1],[a,y,z+1]]
+        else if (dy) corners=[[x,b,z],[x+1,b,z],[x+1,b,z+1],[x,b,z+1]]
+        else corners=[[x,y,c],[x+1,y,c],[x+1,y+1,c],[x,y+1,c]]
+        quads.push(corners.map(q => norm(...q)))
       }
     }
-    return result
+    return quads
   }, [background, activation, threshold, positiveOnly, absoluteValues])
 
   useEffect(() => {
@@ -69,7 +85,7 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
     const { yaw, pitch } = angles.current
     const cy = Math.cos(yaw), sy = Math.sin(yaw)
     const cp = Math.cos(pitch), sp = Math.sin(pitch)
-    const scale = size * 1.50 * zoom.current
+    const scale = size * 1.35 * zoom.current
     const project = ([x, y, z]) => {
       const rx = x * cy + z * sy
       const rz = -x * sy + z * cy
@@ -97,11 +113,11 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
         ctx.lineTo(tri.b[0], tri.b[1])
         ctx.lineTo(tri.c[0], tri.c[1])
         ctx.closePath()
-        ctx.fillStyle = `rgba(${Math.round(16 + light * 25)},${Math.round(99 + light * 73)},${Math.round(113 + light * 76)},${0.13 + opacity * 0.16})`
+        ctx.fillStyle = `rgba(${Math.round(16 + light * 25)},${Math.round(99 + light * 73)},${Math.round(113 + light * 76)},${0.37 + opacity * 0.23})`
         ctx.fill()
         // Fine outlines emphasize the sulci without showing individual mesh vertices.
         if (light > 0.68) {
-          ctx.strokeStyle = `rgba(104,211,218,${0.018 + light * 0.026})`
+          ctx.strokeStyle = `rgba(104,211,218,${0.025 + light * 0.045})`
           ctx.lineWidth = 0.6
           ctx.stroke()
         }
@@ -110,12 +126,16 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
 
     // Activation samples come from the selected query's NIfTI volume, not
     // from the decorative brain mesh. They are intentionally visible through it.
-    const dots = active.map(project).sort((a, b) => a[2] - b[2])
-    for (const [x, y, depth] of dots) {
-      const radius = clamp(size * 0.0045 * zoom.current * (1 + depth * 0.5), 1.2, 4.6)
+    const patches = active.map(quad => {
+      const points = quad.map(project)
+      return { points, depth: points.reduce((sum, p) => sum + p[2], 0) / 4 }
+    }).sort((a,b) => a.depth - b.depth)
+    ctx.fillStyle = 'rgba(245,45,57,0.91)'
+    for (const patch of patches) {
       ctx.beginPath()
-      ctx.arc(x, y, radius, 0, Math.PI * 2)
-      ctx.fillStyle = `rgba(255,${Math.round(45 + depth * 15)},62,${clamp(0.60 + opacity * 0.32, 0, 1)})`
+      ctx.moveTo(patch.points[0][0], patch.points[0][1])
+      for (let j=1;j<4;j++) ctx.lineTo(patch.points[j][0],patch.points[j][1])
+      ctx.closePath()
       ctx.fill()
     }
 
@@ -142,12 +162,12 @@ export function Brain3D({ background, activation, threshold, positiveOnly, absol
   }
   const onWheel = event => {
     event.preventDefault()
-    zoom.current = clamp(zoom.current * (event.deltaY > 0 ? 0.92 : 1.08), 0.65, 1.9)
+    zoom.current = clamp(zoom.current * (event.deltaY > 0 ? 0.92 : 1.08), 0.22, 2.5)
     setViewVersion(version => version + 1)
   }
   return <section className="brain-3d-panel" aria-label="Interactive 3D brain map">
-    <div className="brain-3d-heading"><strong>3D brain activation</strong><button type="button" onClick={() => { angles.current = { ...INITIAL_ANGLE }; zoom.current = 1; setViewVersion(version => version + 1) }}>Reset view</button></div>
+    <div className="brain-3d-heading"><strong>3D brain activation</strong><button type="button" onClick={() => { angles.current = { ...INITIAL_ANGLE }; zoom.current = 0.68; setViewVersion(version => version + 1) }}>Reset view</button></div>
     <canvas ref={canvasRef} className="brain-3d-canvas" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null }} onPointerCancel={() => { drag.current = null }} onWheel={onWheel} />
-    <div className="brain-3d-legend"><span>● Translucent cortical surface</span><span className="brain-3d-red">● Activation voxels</span></div>
+    <div className="brain-3d-legend"><span>● Translucent cortical surface</span><span className="brain-3d-red">● Activation regions</span></div>
   </section>
 }

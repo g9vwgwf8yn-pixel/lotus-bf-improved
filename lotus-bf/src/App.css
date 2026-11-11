@@ -22,3 +22,13 @@
 .brain-3d-red{color:#ff5b61}
 .studies-card table{width:100%;table-layout:auto}
 .studies-card td:nth-child(3){min-width:260px}
+
+/* Research table: give titles priority and keep the IF column compact. */
+.studies-card table{width:100%;table-layout:fixed;min-width:690px}
+.studies-card th,.studies-card td{padding:8px 6px;vertical-align:top;overflow-wrap:break-word}
+.studies-card th:nth-child(1),.studies-card td:nth-child(1){width:7%}
+.studies-card th:nth-child(2),.studies-card td:nth-child(2){width:14%}
+.studies-card th:nth-child(3),.studies-card td:nth-child(3){width:9%;min-width:0;white-space:nowrap;text-align:center}
+.studies-card th:nth-child(4),.studies-card td:nth-child(4){width:49%}
+.studies-card th:nth-child(5),.studies-card td:nth-child(5){width:21%}
+.studies-card th:nth-child(3) span{gap:2px}
