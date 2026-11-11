@@ -835,9 +835,33 @@ def _collect_coords_for_mixed(conn, query_string: str, r: float):
     return out
 
 def create_app():
-    app = Flask(__name__, static_folder="dist", static_url_path="")
-    CORS(app, resources={r"/*": {"origins": "*"}})  # 開發用：全開放
+    # Resolve the Vite output independently of the process working directory.
+    frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
+    app = Flask(__name__, static_folder=frontend_dir, static_url_path="/assets")
+    CORS(app, resources={r"/*": {"origins": "*"}})
     app.register_blueprint(bp)
+
+    @app.get("/")
+    def frontend_index():
+        index_path = os.path.join(frontend_dir, "index.html")
+        if not os.path.isfile(index_path):
+            app.logger.error("Frontend index missing: %s", index_path)
+            return "Frontend build missing: dist/index.html", 503
+        return send_from_directory(frontend_dir, "index.html")
+
+    @app.get("/<path:asset_path>")
+    def frontend_assets(asset_path):
+        # API paths should never silently return the React HTML shell.
+        if asset_path.startswith(("query/", "terms", "help", "api/")):
+            return "Not Found", 404
+        requested = os.path.join(frontend_dir, asset_path)
+        if os.path.isfile(requested):
+            return send_from_directory(frontend_dir, asset_path)
+        # SPA fallback for client-side URLs, but not for missing static assets.
+        if "." not in os.path.basename(asset_path):
+            return frontend_index()
+        return "Not Found", 404
+
     return app
 
 def _lotus_help_payload():
@@ -873,10 +897,6 @@ def _lotus_help_payload():
             ]
         }
     }
-
-@bp.get("/")
-def index():
-    return send_from_directory("dist", "index.html") if os.path.isfile(os.path.join(os.path.dirname(__file__), "dist", "index.html")) else "LoTUS-BF backend is running. Build the React frontend to view the website."
 
 @bp.get("/help")
 def help():
