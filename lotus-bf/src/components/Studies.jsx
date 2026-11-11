@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 
 function classNames (...xs) { return xs.filter(Boolean).join(' ') }
+function journalUrl(row) {
+  const doi = String(row.doi || '').trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')
+  if (doi && /^10\.\d{4,9}\//.test(doi)) return `https://doi.org/${encodeURIComponent(doi).replace('%2F', '/')}`
+  if (row.journal) return `https://www.google.com/search?q=${encodeURIComponent(row.journal + ' journal')}`
+  return null
+}
 
 export function Studies ({ query }) {
   const [rows, setRows] = useState([])
@@ -111,7 +117,7 @@ export function Studies ({ query }) {
                 pageRows.map((r, i) => (
                   <tr key={i} className={classNames(i % 2 ? 'bg-white' : 'bg-gray-50')}>
                     <td className='whitespace-nowrap px-3 py-2 align-top'>{r.year ?? ''}</td>
-                    <td className='px-3 py-2 align-top'>{r.journal || ''}</td>
+                    <td className='px-3 py-2 align-top'>{journalUrl(r) ? <a className='journal-link' href={journalUrl(r)} target='_blank' rel='noopener noreferrer' title={r.doi ? '開啟論文 DOI' : '搜尋期刊官方網站'}>{r.journal || '開啟論文'}</a> : (r.journal || '')}</td>
                     <td className='max-w-[540px] px-3 py-2 align-top'><div className='truncate' title={r.title}>{r.title || ''}</div></td>
                     <td className='px-3 py-2 align-top'>{r.authors || ''}</td>
                   </tr>

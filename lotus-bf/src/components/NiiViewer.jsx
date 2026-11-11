@@ -20,6 +20,7 @@ const MNI2MM = { x0: 90, y0: -126, z0: -72, vx: 2, vy: 2, vz: 2 };
 export function NiiViewer({ query }) {
   const [loadingBG, setLoadingBG] = useState(false)
   const [loadingMap, setLoadingMap] = useState(false)
+  const [mapVersion, setMapVersion] = useState(0)
   const [errBG, setErrBG] = useState('')
   const [errMap, setErrMap] = useState('')
 
@@ -208,14 +209,17 @@ const coord2idx = (c_mm, n, axis) => {
 
 // load meta-analytic map when query/params change
   useEffect(() => {
-    if (!mapUrl) { mapRef.current = null; return }
+    if (!mapUrl) { mapRef.current = null; setMapVersion(v => v + 1); return }
     let alive = true
+    mapRef.current = null
+    setMapVersion(v => v + 1)
     setLoadingMap(true); setErrMap('')
     ;(async () => {
       try {
         const mv = await loadNifti(mapUrl)
         if (!alive) return
         mapRef.current = mv
+        setMapVersion(v => v + 1)
         if (!bgRef.current) {
           setDims(mv.dims)
           const [nx,ny,nz] = mv.dims
@@ -227,6 +231,7 @@ const coord2idx = (c_mm, n, axis) => {
         if (!alive) return
         setErrMap(e?.message || String(e))
         mapRef.current = null
+        setMapVersion(v => v + 1)
       } finally {
         if (!alive) return
         setLoadingMap(false)
@@ -240,7 +245,7 @@ const coord2idx = (c_mm, n, axis) => {
     if (!mv) return null
     if (thrMode === 'value') return Number(thrValue) || 0
     return percentile(mv.data, Math.max(0, Math.min(100, Number(pctl) || 95)))
-  }, [thrMode, thrValue, pctl, mapRef.current])
+  }, [thrMode, thrValue, pctl, mapVersion])
 
   // draw one slice (upright orientation via vertical flip)
   function drawSlice (canvas, axis /* 'z' | 'y' | 'x' */, index) {
@@ -381,7 +386,7 @@ const coord2idx = (c_mm, n, axis) => {
   }, [
     dims, ix, iy, iz,
     overlayAlpha, posOnly, useAbs, thrMode, pctl, thrValue,
-    loadingBG, loadingMap, errBG, errMap, query
+    loadingBG, loadingMap, errBG, errMap, query, mapVersion
   ])
 
   const [nx, ny, nz] = dims

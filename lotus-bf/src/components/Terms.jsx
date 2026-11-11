@@ -1,97 +1,41 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-export function Terms ({ onPickTerm }) {
-  const [terms, setTerms] = useState([])
+export function Terms({ onPickTerm }) {
   const [search, setSearch] = useState('')
+  const [terms, setTerms] = useState([])
   const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    let alive = true
-    const ac = new AbortController()
-    const load = async () => {
-      setLoading(true)
-      setErr('')
+    const value = search.trim()
+    if (!value) { setTerms([]); setError(''); setLoading(false); return }
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      setLoading(true); setError('')
       try {
-        const res = await fetch('/terms', { signal: ac.signal })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const data = await res.json()
-        if (!alive) return
-        setTerms(Array.isArray(data?.terms) ? data.terms : [])
+        const response = await fetch(`/terms?search=${encodeURIComponent(value)}&limit=40`, { signal: controller.signal })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await response.json()
+        if (!controller.signal.aborted) setTerms(Array.isArray(data.terms) ? data.terms : [])
       } catch (e) {
-        if (!alive) return
-        setErr(`Failed to fetch terms: ${e?.message || e}`)
-      } finally {
-        if (alive) setLoading(false)
-      }
-    }
-    load()
-    return () => { alive = false; ac.abort() }
-  }, [])
+        if (!controller.signal.aborted) { setError('無法載入術語建議，請稍後重試'); setTerms([]) }
+      } finally { if (!controller.signal.aborted) setLoading(false) }
+    }, 250)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [search])
 
-  const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase()
-    if (!s) return terms
-    return terms.filter(t => t.toLowerCase().includes(s))
-  }, [terms, search])
-
-  return (
-    <div className='terms'>
-      {/* Removed internal <h2> to avoid double "Terms" header. The bold title now comes from App.jsx card__title. */}
-
-      <div className='terms__controls'>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder='Search terms…'
-          className='input'
-        />
-        <button
-          onClick={() => setSearch('')}
-          className='btn btn--primary'
-        >
-          Clear
-        </button>
-      </div>
-
-      {loading && (
-        <div className='terms__skeleton'>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className='terms__skeleton-row' />
-          ))}
-        </div>
-      )}
-
-      {err && (
-        <div className='alert alert--error'>
-          {err}
-        </div>
-      )}
-
-      {!loading && !err && (
-        <div className='terms__list'>
-          {filtered.length === 0 ? (
-            <div className='terms__empty'>No terms found</div>
-          ) : (
-            <ul className='terms__ul'>
-              {filtered.slice(0, 500).map((t, idx) => (
-                <li key={`${t}-${idx}`} className='terms__li'>
-                  <a
-  href="#"
-  className='terms__name'
-  title={t}
-  aria-label={`Add term ${t}`}
-  onClick={(e) => { e.preventDefault(); onPickTerm?.(t); }}
->
-  {t}
-</a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+  return <div className="terms">
+    <div className="terms__controls">
+      <input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder="輸入任意腦功能術語…" aria-label="搜尋術語" />
+      {search && <button onClick={() => setSearch('')}>清除</button>}
     </div>
-  )
+    {loading && <p className="terms__hint">正在搜尋…</p>}
+    {error && <p role="alert" className="terms__error">{error}</p>}
+    {!search.trim() && <p className="terms__hint">輸入關鍵字，即可查看資料庫中的相關術語。</p>}
+    {search.trim() && !loading && !error && <div className="terms__list" role="listbox" aria-label="術語建議">
+      {terms.length === 0 ? <p className="terms__hint">找不到符合的術語</p> : terms.map(term =>
+        <button className="terms__suggestion" key={term} role="option" aria-selected="false" onClick={() => { onPickTerm(term); setSearch('') }}>{term}</button>
+      )}
+    </div>}
+  </div>
 }
-

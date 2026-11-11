@@ -42,3 +42,9 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .app__footer { margin-top:24px; padding-top:14px; border-top:1px solid var(--border); color:var(--muted); font-size:11px; }
 @media(max-width:1200px) { .app__grid { grid-template-columns:minmax(200px,1fr) minmax(400px,2fr); } .card--viewer { grid-column:1/-1; } }
 @media(max-width:750px) { .app { padding:18px 12px; } .app__grid { grid-template-columns:minmax(0,1fr); } .card--viewer { grid-column:auto; } .app__title { font-size:26px; } .app__title span { display:block; font-size:15px; margin:5px 0 0; } .app__header-row { align-items:flex-start; } .share-link { margin-left:0; } }
+
+.terms__hint { color:#64748b; font-size:12px; line-height:1.6; margin:12px 0; }
+.terms__error { color:#b42318; font-size:12px; }
+.terms__suggestion { display:block; width:100%; border:0; border-bottom:1px solid #edf1f4; border-radius:0; background:white; text-align:left; font-weight:400; font-size:13px; padding:10px 8px; }
+.terms__suggestion:hover,.terms__suggestion:focus-visible { background:#edf5f8; }
+.journal-link { color:#176b93; text-decoration:underline; text-underline-offset:2px; }
