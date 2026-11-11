@@ -11,9 +11,9 @@ function rowKey(row) { return String(row.study_id || row.doi || row.title || '')
 
 export function Studies ({ query, onStatusChange }) {
   const [rows, setRows] = useState([])
-  useEffect(() => { onStatusChange?.(Boolean(query) && loading) }, [query, loading, onStatusChange])
   const [citations, setCitations] = useState({})
   const [loading, setLoading] = useState(false)
+  useEffect(() => { onStatusChange?.(Boolean(query) && loading) }, [query, loading, onStatusChange])
   const [err, setErr] = useState('')
   const [sortKey, setSortKey] = useState('year')
   const [sortDir, setSortDir] = useState('desc') // 'asc' | 'desc'

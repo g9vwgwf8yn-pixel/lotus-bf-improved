@@ -17,9 +17,9 @@ function ErrorBoundary({ children }) {
   }, [])
   if (err) {
     return (
-      <div style="padding:16px; font-family: ui-sans-serif">
+      <div style={{ padding: 16, fontFamily: 'ui-sans-serif' }}>
         <h2>🚨 執行期錯誤</h2>
-        <pre style="white-space:pre-wrap; background:#f5f5f5; padding:12px; border-radius:8px;">
+        <pre style={{ whiteSpace: 'pre-wrap', background: '#f5f5f5', padding: 12, borderRadius: 8 }}>
 {String(err?.stack || err?.message || err)}
         </pre>
       </div>
